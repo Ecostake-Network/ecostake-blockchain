@@ -203,6 +203,25 @@ async def challenges(farmer_rpc_port: Optional[int], limit: int) -> None:
         )
 
 
+async def get_difficulty(rpc_port: Optional[int], pk: Optional[str]) -> Decimal:
+    diff = Decimal(20)
+    try:
+        config = load_config(DEFAULT_ROOT_PATH, "config.yaml")
+        full_node_hostname = config["farmer"]["full_node_peer"]["host"]
+        if rpc_port is None:
+            rpc_port = config["full_node"]["rpc_port"]
+        client = await FullNodeRpcClient.create(full_node_hostname, uint16(rpc_port), DEFAULT_ROOT_PATH, config)
+        diff = await client.get_difficulty_coeff(pk)
+    except Exception as e:
+        if isinstance(e, aiohttp.ClientConnectorError):
+            print(f"Connection error. Check if full node is running at {rpc_port}")
+        else:
+            print(f"Exception from 'full node' {e}")
+
+    client.close()
+    await client.await_closed()
+    return diff
+
 async def summary(
     rpc_port: Optional[int],
     wallet_rpc_port: Optional[int],
@@ -247,6 +266,7 @@ async def summary(
         total_plot_size = 0
         total_plots = 0
         staking_addresses = defaultdict(int)
+        diff = defaultdict(Decimal)
 
     if all_harvesters is not None:
         harvesters_local: dict = {}
@@ -260,7 +280,7 @@ async def summary(
                     harvesters_remote[ip] = {}
                 harvesters_remote[ip][harvester["connection"]["node_id"]] = harvester
 
-        def process_harvesters(harvester_peers_in: dict):
+        async def process_harvesters(harvester_peers_in: dict):
             for harvester_peer_id, plots in harvester_peers_in.items():
                 total_plot_size_harvester = sum(map(lambda x: x["file_size"], plots["plots"]))
                 PlotStats.total_plot_size += total_plot_size_harvester
@@ -274,16 +294,18 @@ async def summary(
                         keyHashDict[str(plot["farmer_public_key"])] = ph
                         PlotStats.staking_addresses[ph] += 1
                         if PlotStats.staking_addresses[ph] ==1:
+                            pk = plot["farmer_public_key"]
                             wal = encode_puzzle_hash(ph, address_prefix)
-                            print(f"Staking address {wal} for Farmer {plot['farmer_public_key']}")
+                            PlotStats.diff[wal] = await get_difficulty(rpc_port, pk)
+                            print(f"Staking address {wal} for Farmer {plot['farmer_public_key']} Staking Factor: {PlotStats.diff[wal]}")
                 print(f"   {len(plots['plots'])} plots of size: {format_bytes(total_plot_size_harvester)}")
 
         if len(harvesters_local) > 0:
             print(f"Local Harvester{'s' if len(harvesters_local) > 1 else ''}")
-            process_harvesters(harvesters_local)
+            await process_harvesters(harvesters_local)
         for harvester_ip, harvester_peers in harvesters_remote.items():
             print(f"Remote Harvester{'s' if len(harvester_peers) > 1 else ''} for IP: {harvester_ip}")
-            process_harvesters(harvester_peers)
+            await process_harvesters(harvester_peers)
 
         print(f"Plot count for all harvesters: {PlotStats.total_plots}")
 
@@ -297,7 +319,7 @@ async def summary(
             balance /= Decimal(10 ** 12)
             # query balance
             ph = encode_puzzle_hash(k, address_prefix)
-            print(f"  {ph} (balance: {balance}, plots: {v})")
+            print(f"  {ph} (balance: {balance}, plots: {v}, staking factor: {PlotStats.diff[ph]})")
     else:
         print("Plot count: Unknown")
         print("Total size of plots: Unknown")

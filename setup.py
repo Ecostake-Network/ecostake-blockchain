@@ -28,7 +28,7 @@ dependencies = [
     "click==7.1.2",  # For the CLI
     "dnspythonchia==2.2.0",  # Query DNS seeds
     "watchdog==2.1.6",  # Filesystem event watching - watches keyring.yaml
-    "nest-asyncio==1.5.1",
+    "nest-asyncio==1.5.4",
 ]
 
 upnp_dependencies = [

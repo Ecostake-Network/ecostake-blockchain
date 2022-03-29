@@ -1373,7 +1373,7 @@ export default [
   { word: 'problem', value: 1371 },
   { word: 'process', value: 1372 },
   { word: 'produce', value: 1373 },
-  { word: 'ecostake', value: 1374 },
+  { word: 'profit', value: 1374 },
   { word: 'program', value: 1375 },
   { word: 'project', value: 1376 },
   { word: 'promote', value: 1377 },

@@ -17,6 +17,7 @@ from ecostake.util.bech32m import encode_puzzle_hash
 from ecostake.util.byte_types import hexstr_to_bytes
 from ecostake.util.ints import uint32, uint64
 from ecostake.util.ws_message import WsRpcMessage, create_payload_dict
+from blspy import G1Element
 
 
 class FullNodeRpcApi:
@@ -55,6 +56,8 @@ class FullNodeRpcApi:
             "/get_all_mempool_items": self.get_all_mempool_items,
             "/get_mempool_item_by_tx_id": self.get_mempool_item_by_tx_id,
             "/pk_to_ph": self.pk_to_ph,
+            # Diff
+            "/get_difficulty_coeff": self.get_difficulty_coeff,
         }
 
     async def _state_changed(self, change: str) -> List[WsRpcMessage]:
@@ -582,3 +585,11 @@ class FullNodeRpcApi:
         prefix = self.service.config["network_overrides"]["config"][selected]["address_prefix"]
 
         return {"ph": encode_puzzle_hash(create_puzzlehash_for_pk(public_key), prefix)}
+    
+    async def get_difficulty_coeff(self, request: Dict) -> Optional[Dict]:
+        if "public_key" not in request:
+            raise ValueError("No public_key in request")
+        pkbytes = hexstr_to_bytes(request["public_key"])
+        element = G1Element.from_bytes(pkbytes)
+        output = await self.service.blockchain.get_farmer_difficulty_coeff(element)
+        return {"diff": str(output)}

@@ -39,6 +39,7 @@ from ecostake.wallet.block_record import HeaderBlockRecord
 from ecostake.wallet.cc_wallet.cc_wallet import CCWallet
 from ecostake.wallet.derivation_record import DerivationRecord
 from ecostake.wallet.derive_keys import master_sk_to_backup_sk, master_sk_to_farmer_sk, master_sk_to_wallet_sk
+from ecostake.wallet.derive_chives_keys import master_sk_to_chives_farmer_sk
 from ecostake.wallet.did_wallet.did_wallet import DIDWallet
 from ecostake.wallet.key_val_store import KeyValStore
 from ecostake.wallet.rl_wallet.rl_wallet import RLWallet
@@ -267,7 +268,10 @@ class WalletStateManager:
             private = master_sk_to_farmer_sk(self.private_key)
             pubkey = private.get_g1()
             if create_puzzlehash_for_pk(pubkey) != puzzle_hash:
-                raise ValueError(f"No key for this puzzlehash {puzzle_hash})")
+                private = master_sk_to_chives_farmer_sk(self.private_key)
+                pubkey = private.get_g1()
+                if create_puzzlehash_for_pk(pubkey) != puzzle_hash:
+                    raise ValueError(f"No key for this puzzlehash {puzzle_hash})")
         else:
             private = master_sk_to_wallet_sk(self.private_key, index_for_puzzlehash)
             pubkey = private.get_g1()

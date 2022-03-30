@@ -288,8 +288,8 @@ async def summary(
                 address_prefix = config["network_overrides"]["config"][config["selected_network"]]["address_prefix"]
                 keyHashDict = {}
                 for plot in plots["plots"]:
-                    puzzleHash = keyHashDict.get(str(plot["farmer_public_key"]))
-                    if puzzleHash == None:
+                    ph = keyHashDict.get(str(plot["farmer_public_key"]))
+                    if ph == None:
                         ph = create_puzzlehash_for_pk(hexstr_to_bytes(plot["farmer_public_key"]))
                         keyHashDict[str(plot["farmer_public_key"])] = ph
                         PlotStats.staking_addresses[ph] += 1
@@ -298,6 +298,8 @@ async def summary(
                             wal = encode_puzzle_hash(ph, address_prefix)
                             PlotStats.diff[wal] = await get_difficulty(rpc_port, pk)
                             print(f"Staking address {wal} for Farmer {plot['farmer_public_key']} Staking Factor: {PlotStats.diff[wal]}")
+                    else:
+                        PlotStats.staking_addresses[ph] += 1
                 print(f"   {len(plots['plots'])} plots of size: {format_bytes(total_plot_size_harvester)}")
 
         if len(harvesters_local) > 0:

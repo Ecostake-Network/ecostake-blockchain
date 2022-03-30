@@ -340,7 +340,7 @@ async def summary(
     if all_harvesters is not None and PlotStats.total_plots == 0:
         print("Expected time to win (Not adjusted for Staking Factor): Never (no plots)")
     else:
-        print("Expected time to win (Not adjusted for Staking Factor: " + format_minutes(minutes))
+        print("Expected time to win (Not adjusted for Staking Factor): " + format_minutes(minutes))
 
     if amounts is None:
         if wallet_not_running:

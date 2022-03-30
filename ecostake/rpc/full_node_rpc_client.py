@@ -226,3 +226,7 @@ class FullNodeRpcClient(RpcClient):
                 }
         except Exception:
             return None
+        
+    async def get_difficulty_coeff(self, pk: Optional[str]) -> Optional[Dict]:
+        response = await self.fetch("get_difficulty_coeff", {"public_key": pk})
+        return response["diff"]

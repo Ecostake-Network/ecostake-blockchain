@@ -102,13 +102,12 @@ class Harvester:
         with self.plot_manager:
             keyHashDict = {}
             for path, plot_info in self.plot_manager.plots.items():
+                prover = plot_info.prover
                 puzzleHash = keyHashDict.get(str(plot_info.farmer_public_key))
                 if puzzleHash == None:
                     puzzleHash = encode_puzzle_hash(create_puzzlehash_for_pk(plot_info.farmer_public_key), address_prefix)
                     keyHashDict[str(plot_info.farmer_public_key)] = puzzleHash
                     self.log.info(f"Adding puzzlehash: {puzzleHash} for pk: {plot_info.farmer_public_key}") 
-            for path, plot_info in self.plot_manager.plots.items():
-                prover = plot_info.prover
                 response_plots.append(
                     {
                         "filename": str(path),

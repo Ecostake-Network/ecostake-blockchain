@@ -14,7 +14,7 @@ Ecostake (ECOSTAKE) is a modern, green cryptocurrency built to be efficient, dec
 
 
 ## Social Links
-- [Discord](http://discord.gg/SAn2ZF3GJH) - Join the Ecostake Discord Community
+- [Discord](https://discord.gg/SAn2ZF3GJH) - Join the Ecostake Discord Community
 - [Twitter](https://twitter.com/Ecostake-NetworkNet) - Follow Ecostake on Twitter
 
 

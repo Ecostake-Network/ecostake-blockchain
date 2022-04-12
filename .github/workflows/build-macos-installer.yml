@@ -137,7 +137,7 @@ jobs:
         sh build_macos.sh
 
     - name: Upload MacOS artifacts
-      uses: actions/upload-artifact@v2
+      uses: actions/upload-artifact@v3
       with:
         name: Ecostake-Installer-on-MacOS-10.15-dmg
         path: ${{ github.workspace }}/build_scripts/final_installer/

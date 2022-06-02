@@ -18,6 +18,9 @@ from ecostake.util.default_root import DEFAULT_ROOT_PATH
 from ecostake.util.ints import uint16, uint64
 from ecostake.util.misc import format_bytes, format_minutes
 from ecostake.util.network import is_localhost
+from ecostake.util.keychain import Keychain
+from ecostake.wallet.derive_keys import master_sk_to_farmer_sk
+from ecostake.consensus.default_constants import DEFAULT_CONSTANTS
 
 SECONDS_PER_BLOCK = (24 * 3600) / 4608
 
@@ -45,10 +48,10 @@ async def get_blockchain_state(rpc_port: Optional[int]) -> Optional[Dict[str, An
     blockchain_state = None
     try:
         config = load_config(DEFAULT_ROOT_PATH, "config.yaml")
-        full_node_hostname = config["farmer"]["full_node_peer"]["host"]
+        self_hostname = config["self_hostname"]
         if rpc_port is None:
             rpc_port = config["full_node"]["rpc_port"]
-        client = await FullNodeRpcClient.create(full_node_hostname, uint16(rpc_port), DEFAULT_ROOT_PATH, config)
+        client = await FullNodeRpcClient.create(self_hostname, uint16(rpc_port), DEFAULT_ROOT_PATH, config)
         blockchain_state = await client.get_blockchain_state()
     except Exception as e:
         if isinstance(e, aiohttp.ClientConnectorError):
@@ -65,10 +68,10 @@ async def get_ph_balance(rpc_port: Optional[int], puzzle_hash: bytes32) -> Optio
     coins = None
     try:
         config = load_config(DEFAULT_ROOT_PATH, "config.yaml")
-        full_node_hostname = config["farmer"]["full_node_peer"]["host"]
+        self_hostname = config["self_hostname"]
         if rpc_port is None:
             rpc_port = config["full_node"]["rpc_port"]
-        client = await FullNodeRpcClient.create(full_node_hostname, uint16(rpc_port), DEFAULT_ROOT_PATH, config)
+        client = await FullNodeRpcClient.create(self_hostname, uint16(rpc_port), DEFAULT_ROOT_PATH, config)
         coins = await client.get_coin_records_by_puzzle_hash(puzzle_hash, False)
     except Exception as e:
         if isinstance(e, aiohttp.ClientConnectorError):
@@ -85,10 +88,10 @@ async def get_average_block_time(rpc_port: Optional[int]) -> float:
     try:
         blocks_to_compare = 500
         config = load_config(DEFAULT_ROOT_PATH, "config.yaml")
-        full_node_hostname = config["farmer"]["full_node_peer"]["host"]
+        self_hostname = config["self_hostname"]
         if rpc_port is None:
             rpc_port = config["full_node"]["rpc_port"]
-        client = await FullNodeRpcClient.create(full_node_hostname, uint16(rpc_port), DEFAULT_ROOT_PATH, config)
+        client = await FullNodeRpcClient.create(self_hostname, uint16(rpc_port), DEFAULT_ROOT_PATH, config)
         blockchain_state = await client.get_blockchain_state()
         curr: Optional[BlockRecord] = blockchain_state["peak"]
         if curr is None or curr.height < (blocks_to_compare + 100):
@@ -203,25 +206,6 @@ async def challenges(farmer_rpc_port: Optional[int], limit: int) -> None:
         )
 
 
-async def get_difficulty(rpc_port: Optional[int], pk: Optional[str]) -> Decimal:
-    diff = Decimal(20)
-    try:
-        config = load_config(DEFAULT_ROOT_PATH, "config.yaml")
-        full_node_hostname = config["farmer"]["full_node_peer"]["host"]
-        if rpc_port is None:
-            rpc_port = config["full_node"]["rpc_port"]
-        client = await FullNodeRpcClient.create(full_node_hostname, uint16(rpc_port), DEFAULT_ROOT_PATH, config)
-        diff = await client.get_difficulty_coeff(pk)
-    except Exception as e:
-        if isinstance(e, aiohttp.ClientConnectorError):
-            print(f"Connection error. Check if full node is running at {rpc_port}")
-        else:
-            print(f"Exception from 'full node' {e}")
-
-    client.close()
-    await client.await_closed()
-    return diff
-
 async def summary(
     rpc_port: Optional[int],
     wallet_rpc_port: Optional[int],
@@ -266,7 +250,16 @@ async def summary(
         total_plot_size = 0
         total_plots = 0
         staking_addresses = defaultdict(int)
-        diff = defaultdict(Decimal)
+        fingerprints = defaultdict(int)
+        capacities = defaultdict(int)
+        staking_factors = defaultdict(int)
+
+    if blockchain_state is not None and blockchain_state["space"] is not None:
+        effective_netspace = blockchain_state["space"]
+        minimal_staking = Decimal(effective_netspace) / (DEFAULT_CONSTANTS.STAKING_ESTIMATE_BLOCK_RANGE * 100)
+        minimal_staking /= Decimal(10 ** 12)
+    else:
+        effective_netspace = 0
 
     if all_harvesters is not None:
         harvesters_local: dict = {}
@@ -280,34 +273,49 @@ async def summary(
                     harvesters_remote[ip] = {}
                 harvesters_remote[ip][harvester["connection"]["node_id"]] = harvester
 
-        async def process_harvesters(harvester_peers_in: dict):
+        def process_harvesters(harvester_peers_in: dict):
+            keychain = Keychain()
+            private_keys = keychain.get_all_private_keys()
+
+            for sk, seed in private_keys:
+                ph = create_puzzlehash_for_pk(hexstr_to_bytes(str(master_sk_to_farmer_sk(sk).get_g1())))
+
+                PlotStats.staking_addresses[ph] += 0
+                PlotStats.fingerprints[ph] = sk.get_g1().get_fingerprint()
+
             for harvester_peer_id, plots in harvester_peers_in.items():
-                total_plot_size_harvester = sum(map(lambda x: x["file_size"], plots["plots"]))
-                PlotStats.total_plot_size += total_plot_size_harvester
+                total_plot_size_harvester = 0
                 PlotStats.total_plots += len(plots["plots"])
-                address_prefix = config["network_overrides"]["config"][config["selected_network"]]["address_prefix"]
-                keyHashDict = {}
+
+                plot_counts = defaultdict(int)
+                capacities = defaultdict(int)
+
                 for plot in plots["plots"]:
-                    ph = keyHashDict.get(str(plot["farmer_public_key"]))
-                    if ph == None:
-                        ph = create_puzzlehash_for_pk(hexstr_to_bytes(plot["farmer_public_key"]))
-                        keyHashDict[str(plot["farmer_public_key"])] = ph
-                        PlotStats.staking_addresses[ph] += 1
-                        if PlotStats.staking_addresses[ph] ==1:
-                            pk = plot["farmer_public_key"]
-                            wal = encode_puzzle_hash(ph, address_prefix)
-                            PlotStats.diff[wal] = await get_difficulty(rpc_port, pk)
-                            print(f"Staking address {wal} for Farmer {plot['farmer_public_key']} Staking Factor: {PlotStats.diff[wal]}")
-                    else:
-                        PlotStats.staking_addresses[ph] += 1
+                    farmer_public_key = plot["farmer_public_key"]
+                    plot_counts[farmer_public_key] += 1
+                    capacities[farmer_public_key] += plot["file_size"]
+                farmer_keys_addresses: Dict[bytes, bytes32] = {}
+                for farmer_public_key, plot_count in plot_counts.items():
+                    ph = farmer_keys_addresses.get(bytes(hexstr_to_bytes(farmer_public_key)))
+                    if ph is None:
+                        ph = create_puzzlehash_for_pk(hexstr_to_bytes(farmer_public_key))
+                        farmer_keys_addresses.update({bytes(hexstr_to_bytes(farmer_public_key)): ph})
+
+                    PlotStats.staking_addresses[ph] += plot_counts[farmer_public_key]
+
+                    capacity = capacities[farmer_public_key]
+                    PlotStats.capacities[ph] += capacity
+                    total_plot_size_harvester += capacity
+
+                PlotStats.total_plot_size += total_plot_size_harvester
                 print(f"   {len(plots['plots'])} plots of size: {format_bytes(total_plot_size_harvester)}")
 
         if len(harvesters_local) > 0:
             print(f"Local Harvester{'s' if len(harvesters_local) > 1 else ''}")
-            await process_harvesters(harvesters_local)
+            process_harvesters(harvesters_local)
         for harvester_ip, harvester_peers in harvesters_remote.items():
             print(f"Remote Harvester{'s' if len(harvester_peers) > 1 else ''} for IP: {harvester_ip}")
-            await process_harvesters(harvester_peers)
+            process_harvesters(harvester_peers)
 
         print(f"Plot count for all harvesters: {PlotStats.total_plots}")
 
@@ -316,31 +324,61 @@ async def summary(
 
         print("Staking addresses:")
         address_prefix = config["network_overrides"]["config"][config["selected_network"]]["address_prefix"]
-        for k, v in sorted(PlotStats.staking_addresses.items(), key=(lambda tup: tup[1]), reverse=True):
-            balance = await get_ph_balance(rpc_port, k)
-            balance /= Decimal(10 ** 12)
-            # query balance
-            ph = encode_puzzle_hash(k, address_prefix)
-            print(f"  {ph} (balance: {balance}, plots: {v}, staking factor: {PlotStats.diff[ph]})")
+        for ph, plot_count in PlotStats.staking_addresses.items():
+            print(f"  {encode_puzzle_hash(ph, address_prefix)}")
+
+            print(f"    FP: {PlotStats.fingerprints[ph]}, ", end="")
+
+            address_capacity = PlotStats.capacities[ph]
+            print(f"Plots: {plot_count} (", end="")
+            print(format_bytes(address_capacity), end="")
+            print(")", end="")
+
+            if blockchain_state is not None:
+                # query balance
+                balance = await get_ph_balance(rpc_port, ph)
+                balance /= Decimal(10 ** 12)
+
+                print(f", Bal: {balance} ECO", end="")
+
+                if effective_netspace is not None:
+                    sf = await get_est_staking_factor(PlotStats.capacities[ph], balance, minimal_staking)
+                    PlotStats.staking_factors[ph] = sf
+
+                    print(f", ESF: {sf} (effectively ", end="")
+                    print(format_bytes(int(address_capacity / float(sf))), end="")
+                    print(")", end="")
+
+            print("") #Line Break
     else:
         print("Plot count: Unknown")
         print("Total size of plots: Unknown")
 
     if blockchain_state is not None:
-        print("Estimated network space (Adjusted for effective staking): ", end="")
-        print(format_bytes(blockchain_state["space"]))
+        print("Estimated effective network space: ", end="")
+        print(format_bytes(effective_netspace))
     else:
-        print("Estimated network space: Unknown")
+        print("Estimated effective network space: Unknown")
 
     minutes = -1
+    est_plot_size = 0
     if blockchain_state is not None and all_harvesters is not None:
-        proportion = PlotStats.total_plot_size / blockchain_state["space"] if blockchain_state["space"] else -1
+        if effective_netspace is not None:
+            for ph, capacity in PlotStats.capacities.items():
+                est_plot_size += capacity / float(PlotStats.staking_factors[ph])
+        else:
+            est_plot_size = PlotStats.total_plot_size
+
+        proportion = est_plot_size / effective_netspace if effective_netspace else -1
         minutes = int((await get_average_block_time(rpc_port) / 60) / proportion) if proportion else -1
 
     if all_harvesters is not None and PlotStats.total_plots == 0:
-        print("Expected time to win (Not adjusted for Staking Factor): Never (no plots)")
-    else:
-        print("Expected time to win (Not adjusted for Staking Factor): " + format_minutes(minutes))
+        print("Expected time to win: Never (no plots)")
+    elif blockchain_state is not None:
+        print("Estimated effective farm capacity: ", end="")
+        print(format_bytes(int(est_plot_size)))
+
+        print("Expected time to win: " + format_minutes(minutes))
 
     if amounts is None:
         if wallet_not_running:
@@ -351,3 +389,27 @@ async def summary(
             print("For details on farmed rewards and fees you should run 'ecostake wallet show'")
     else:
         print("Note: log into your key using 'ecostake wallet show' to see rewards for each key")
+
+
+async def get_est_staking_factor(total_plot_size, staking_balance, minimal_staking) -> Decimal:
+
+    sf = 0
+    staking_balance /= 5
+
+    if minimal_staking == 0 or staking_balance < minimal_staking:
+        return Decimal(20)
+    elif total_plot_size == 0:
+        return Decimal(1)
+
+    # convert farmer space from bytes to TB
+    converted_plot_size = total_plot_size / 1000000000000
+
+    if staking_balance >= converted_plot_size:
+        sf = Decimal("0.5") + Decimal(1) / (Decimal(staking_balance) / Decimal(converted_plot_size) + Decimal(1))
+    else:
+        sf = Decimal("0.05") + Decimal(1) / (Decimal(staking_balance) / Decimal(converted_plot_size) + Decimal("0.05"))
+
+    if (sf < Decimal(1)):
+        return round(sf, 1)
+    else:
+        return round(Decimal(.5) * round(sf/Decimal(.5)), 1)

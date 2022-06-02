@@ -94,7 +94,7 @@ async def show_async(
                         )
             else:
                 print("\nSearching for an initial chain\n")
-                print("You may be able to expedite with 'sit show -a host:port' using a known node.\n")
+                print("You may be able to expedite with 'ecostake show -a host:port' using a known node.\n")
 
             if peak is not None:
                 if peak.is_transaction_block:
@@ -176,7 +176,7 @@ async def show_async(
                 return None
             elif sync_height_1 == -2:
                 print("\nSearching for an initial chain\n")
-                print("You may be able to expedite with 'sit show -a host:port' using a known node.\n")
+                print("You may be able to expedite with 'ecostake show -a host:port' using a known node.\n")
 
                 client.close()
                 await client.await_closed()
@@ -231,7 +231,7 @@ async def show_async(
                 return None
             elif sync_height_2 == -2:
                 print("Measurement 2 failed because the blockchain... packed up and left apparently.")
-                print("You may be able to expedite with 'sit show -a host:port' using a known node.\n")
+                print("You may be able to expedite with 'ecostake show -a host:port' using a known node.\n")
 
                 client.close()
                 await client.await_closed()

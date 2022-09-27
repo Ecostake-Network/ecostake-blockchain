@@ -134,13 +134,13 @@ jobs:
         .\build_scripts\build_windows.ps1
 
     - name: Upload Windows exe's to artifacts
-      uses: actions/upload-artifact@v2.2.2
+      uses: actions/upload-artifact@v3.1.0
       with:
         name: Windows-Exe
         path: ${{ github.workspace }}\ecostake-blockchain-gui\Ecostake-win32-x64\
 
     - name: Upload Installer to artifacts
-      uses: actions/upload-artifact@v2.2.2
+      uses: actions/upload-artifact@v3.1.0
       with:
         name: Windows-Installers
         path: ${{ github.workspace }}\ecostake-blockchain-gui\release-builds\
